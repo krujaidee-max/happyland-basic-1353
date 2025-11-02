@@ -1073,7 +1073,7 @@ let IMAGES_READY = false;
       const el = document.getElementById('startTitle');
       if(!el) return;
       if (IMAGES_READY) {
-        el.textContent = 'พร้อมเริ่ม • ภารกิจ : เลือกรูปให้ตรงกับคำศัพท์';
+        el.textContent = 'พร้อมเริ่ม • ภารกิจ : เลือกรูปภาพให้ตรงกับคำศัพท์';
       } else {
         el.textContent = `กำลังเตรียมภาพ ${__preloadDone}/${__preloadTotal} ...`;
       }
@@ -2507,10 +2507,10 @@ if (countdownEl){
 
 function getMissionTitle(lv){
   switch (lv) {
-    case 1: return 'เลือกรูปให้ตรงกับคำศัพท์';
-    case 2: return 'เลือกรูปให้ตรงกับคำศัพท์';
-    case 3: return 'เลือกรูปให้ตรงกับคำศัพท์';
-    default: return 'เลือกรูปให้ตรงกับคำศัพท์';
+    case 1: return 'เลือกรูปภาพให้ตรงกับคำศัพท์';
+    case 2: return 'เลือกรูปภาพให้ตรงกับคำศัพท์';
+    case 3: return 'เลือกรูปภาพให้ตรงกับคำศัพท์';
+    default: return 'เลือกรูปภาพให้ตรงกับคำศัพท์';
   }
 }
 
@@ -2525,5 +2525,6 @@ function getMissionTitle(lv){
 </script>
 </body>
 </html>
+
 
 
