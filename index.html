@@ -811,6 +811,7 @@ body::before{ content:""; position:fixed; top:0; right:0; width:var(--corner2-im
 <audio id="selectSound" preload="auto" src="image/select.mp3"></audio>
 <audio id="eatSound" preload="auto" src="image/eat.mp3"></audio>
 <audio id="voiceAudio" preload="auto"></audio>
+<audio id="wrongSound" preload="auto" src="image/wrong.mp3"></audio>
 
 <!-- ===== ปุ่ม Mute / Fullscreen ===== -->
 <button id="muteBtn" aria-pressed="false" title="Mute / Unmute">🔊</button>
@@ -961,6 +962,8 @@ if (window.innerWidth < 480) {
   const selectSound = document.getElementById('selectSound');
   const eatSound = document.getElementById('eatSound');
   const voiceAudio = document.getElementById('voiceAudio'); // 🔊 เสียงอ่านคำถามต่อด่าน
+const wrongSound = document.getElementById('wrongSound'); // 🔊 เสียงตอบผิด
+
 
   if (bgm) {
     bgm.loop = true;
@@ -973,6 +976,7 @@ if (window.innerWidth < 480) {
   }
 
 const VOL_BGM=0.15, VOL_SELECT=0.75, VOL_HIT=0.75, VOL_WIN=0.85, VOL_EAT=0.25, VOL_VOICE=1;
+const VOL_WRONG=0.75;  // เสียงตอบผิด
 
 
 function applyBackendVolume(){
@@ -982,6 +986,8 @@ function applyBackendVolume(){
   if (winSound) winSound.volume = VOL_WIN;
   if (eatSound) eatSound.volume = VOL_EAT;
   if (voiceAudio) voiceAudio.volume = VOL_VOICE;
+    if (wrongSound) wrongSound.volume = VOL_WRONG;
+
 
 }
 applyBackendVolume();
@@ -1073,7 +1079,7 @@ let IMAGES_READY = false;
       const el = document.getElementById('startTitle');
       if(!el) return;
       if (IMAGES_READY) {
-        el.textContent = 'พร้อมเริ่ม • ภารกิจ : เลือกรูปภาพให้ตรงกับคำศัพท์';
+        el.textContent = 'พร้อมเริ่ม • ภารกิจ : เลือกรูปให้ตรงกับคำศัพท์';
       } else {
         el.textContent = `กำลังเตรียมภาพ ${__preloadDone}/${__preloadTotal} ...`;
       }
@@ -1797,6 +1803,15 @@ awaitingAnswer = false;
 
 // 🔸 ให้ "ทั้งสองตัวเลือก" fade หายพร้อมกัน
 document.querySelectorAll('.option').forEach(btn=>{
+// 🔊 เล่นเสียงตามผลลัพธ์ ตอน "เลือกคำตอบ"
+try{
+  if (ok) {
+    playSfx(hitSound, VOL_HIT);        // ถูก → ใช้เสียงเดิม (hitSound)
+  } else {
+    playSfx(wrongSound, VOL_WRONG);     // ผิด → เล่น image/wrong.mp3
+  }
+}catch(_){}
+
   btn.classList.add('fade-out');
   btn.addEventListener('animationend', ()=> btn.remove(), {once:true});
 });
@@ -1819,7 +1834,7 @@ document.querySelectorAll('.option').forEach(btn=>{
     endRound(ok, el, false);
   });
 
-  try{ (selectSound?.cloneNode(true)).play?.() }catch(_){}
+  // (ตัด selectSound ออก — ตอนนี้เราเล่นถูก/ผิดไปแล้วด้านบน)
 }
 
 /* Helper: รอจนกว่าทุก element จะยิง 'transitionend' อย่างน้อย 1 ครั้ง หรือครบ timeout (ms) */
@@ -1835,9 +1850,10 @@ function waitForBothTransitions(els, timeoutMs=600){
 }
 
 
-  function endRound(ok, pickedElOrNull, timeout=false){
+function endRound(ok, pickedElOrNull, timeout=false){
   clearInterval(roundTimer); stopTimebar();
-  try{ (hitSound?.cloneNode(true)).play?.() }catch(_){}
+  // (ไม่ต้องเล่น hitSound ที่นี่แล้ว — เราเล่นไปตอนคลิกเลือกแล้ว)
+
 
   // อัปเดตคะแนนก่อน แล้วทำเอฟเฟกต์ตัวเลขลอย
 if (ok) {
@@ -2502,20 +2518,18 @@ if (countdownEl){
 }
 
     document.getElementById('countdown').style.display='none';
-    
    const st = document.getElementById('startTitle');
 
 function getMissionTitle(lv){
   switch (lv) {
-    case 1: return 'เลือกรูปภาพให้ตรงกับคำศัพท์';
-    case 2: return 'เลือกรูปภาพให้ตรงกับคำศัพท์';
-    case 3: return 'เลือกรูปภาพให้ตรงกับคำศัพท์';
-    default: return 'เลือกรูปภาพให้ตรงกับคำศัพท์';
+    case 1: return 'เลือกรูปให้ตรงกับคำศัพท์';
+    case 2: return 'เลือกรูปให้ตรงกับคำศัพท์';
+    case 3: return 'เลือกรูปให้ตรงกับคำศัพท์';
+    default: return 'เลือกรูปให้ตรงกับคำศัพท์';
   }
 }
 
     st.textContent = getMissionTitle(lv);
-
   });
 });
 
@@ -2525,6 +2539,5 @@ function getMissionTitle(lv){
 </script>
 </body>
 </html>
-
 
 
