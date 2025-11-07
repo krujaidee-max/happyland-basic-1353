@@ -869,6 +869,8 @@ body::before{ content:""; position:fixed; top:0; right:0; width:var(--corner2-im
   const timebarWrap = document.getElementById('timebarWrap');
   const flash = document.getElementById('flash');
   const toast = document.getElementById('roundToast');
+  const goldWrap = document.getElementById('goldWrap');  // << ต้องประกาศก่อนใช้
+
 
 /* ===== Clock UI for existing game timer ===== */
 const clockEl = document.createElement('div');
@@ -950,10 +952,9 @@ function renderGold(score){
 }
 
 // ตัวอย่าง ปรับตอนโหลด
-if (window.innerWidth < 480) {
+if (window.innerWidth < 480 && goldWrap) {
   goldWrap.style.setProperty('--score-size', '28px');
 }
-// หรือจะตั้งตามด่าน/โหมดก็ได้
 
   // เสียง
   const hitSound = document.getElementById('hitSound');
@@ -1028,30 +1029,42 @@ const LEVEL_POOLS = {
 };
 
 // === Image preloader (โหลดครั้งเดียว เก็บแคช กันโหลดซ้ำ) ===
-const __imgCache = new Set();
+const __imgUrlCache  = new Set();          // จำว่า URL ไหน “เคยโหลด” แล้ว
+const __imgElemCache = new Map();          // url -> HTMLImageElement ที่พร้อมใช้ซ้ำ
+
+async function warmDecode(url){
+  // คืนภาพที่ decode แล้ว (ถ้ามี)
+  if (__imgElemCache.has(url)) {
+    const im = __imgElemCache.get(url);
+    if (im && im.complete && im.naturalWidth > 0) return im;
+  }
+  // ไม่มีก็สร้างใหม่ แล้ว decode
+  const im = new Image();
+  im.decoding = 'async';
+  im.loading  = 'eager';
+  im.src = url;
+  try { await im.decode(); } catch(_) {}
+  __imgUrlCache.add(url);
+  __imgElemCache.set(url, im);
+  return im;
+}
 
 /**
- * พรีโหลดรูปแบบไม่บล็อก UI
- * @param {string[]} urls
- * @param {(done:number,total:number)=>void} onProgress
- * @param {()=>void} onDone
+ * พรีโหลดรูปแบบไม่บล็อก UI + decode ล่วงหน้า
  */
 function preloadImages(urls = [], onProgress = ()=>{}, onDone = ()=>{}) {
   let done = 0;
   const total = urls.length;
   if (!total) { onDone(); return; }
 
-  urls.forEach(u => {
-    if (!u || __imgCache.has(u)) { done++; onProgress(done, total); if (done === total) onDone(); return; }
-    const im = new Image();
-    im.onload = im.onerror = () => {
-      __imgCache.add(u);
-      done++; onProgress(done, total);
-      if (done === total) onDone();
-    };
-    im.src = u;
-  });
+  Promise.all(urls.map(async (u)=>{
+    if (!u) { done++; onProgress(done,total); return; }
+    if (__imgUrlCache.has(u)) { done++; onProgress(done,total); return; }
+    await warmDecode(u);       // โหลด + decode + เก็บ __imgElemCache
+    done++; onProgress(done,total);
+  })).then(onDone);
 }
+
 
 /** ดึง URL รูปของด่านจาก LEVEL_POOLS (data1/2/3) */
 function collectLevelImageUrls(level) {
@@ -1064,44 +1077,64 @@ let __preloadDone = 0;
 let __preloadTotal = 0;
 let IMAGES_READY = false;
 
-(function bootPreloadAll(){
-  try{
-    const ALL_URLS = [
-      ...collectLevelImageUrls(1),
-      ...collectLevelImageUrls(2),
-      ...collectLevelImageUrls(3),
-    ];
-    __preloadDone = 0;
-    __preloadTotal = ALL_URLS.length;
+function __collectAllUrls(){
+  return [
+    ...collectLevelImageUrls(1),
+    ...collectLevelImageUrls(2),
+    ...collectLevelImageUrls(3),
+  ].filter(Boolean);
+}
 
-    // อัปเดตข้อความบน start screen ให้รู้ว่ากำลังโหลด
-    const renderProgress = ()=>{
-      const el = document.getElementById('startTitle');
-      if(!el) return;
-      if (IMAGES_READY) {
-        el.textContent = 'พร้อมเริ่ม • ภารกิจ : เลือกรูปให้ตรงกับคำศัพท์';
-      } else {
-        el.textContent = `กำลังเตรียมภาพ ${__preloadDone}/${__preloadTotal} ...`;
-      }
-    };
+function __renderPreloadProgress(){
+  const el = document.getElementById('startTitle');
+  if (!el) return;
+  el.textContent = IMAGES_READY
+    ? 'ภารกิจ : เลือกรูปภาพให้ตรงกับคำศัพท์'
+    : `กำลังเตรียมข้อมูล ${__preloadDone}/${__preloadTotal} ...`;
+}
+
+/** พรีโหลด “ทั้งเกม” ครั้งแรก (หรือเรียกซ้ำได้ จะโหลดเฉพาะที่ยังไม่เคย) */
+function bootPreloadAll(){
+  try{
+    const ALL_URLS = __collectAllUrls().filter(u => !__imgUrlCache.has(u));
+    __preloadDone  = __imgUrlCache.size;
+    __preloadTotal = __imgUrlCache.size + ALL_URLS.length;
+
+    if (!ALL_URLS.length){
+      IMAGES_READY = true;
+      __renderPreloadProgress();
+      return;
+    }
 
     preloadImages(
       ALL_URLS,
-      (done, total)=>{
-        __preloadDone = done; __preloadTotal = total;
-        renderProgress();
+      (done,total)=>{
+        __preloadDone = __imgUrlCache.size;  // นับจาก cache จริง
+        __preloadTotal = __imgUrlCache.size + (total - done);
+        __renderPreloadProgress();
       },
       ()=>{
         IMAGES_READY = true;
-        renderProgress();
+        __renderPreloadProgress();
       }
     );
-    renderProgress();
+    __renderPreloadProgress();
   }catch(e){
-    // ถ้ามีอะไรผิดพลาด ให้ปล่อยเริ่มได้เพื่อไม่บล็อกเกม
     IMAGES_READY = true;
   }
-})();
+}
+
+/** เรียกเติมพรีโหลดเฉพาะ “ด่าน” ปัจจุบัน (ใช้ตอนกดเปลี่ยนด่าน/เริ่มใหม่) */
+function ensurePreloadForLevel(level){
+  const urls = collectLevelImageUrls(level).filter(u=>!__imgUrlCache.has(u));
+  if (!urls.length) return;
+  // ไม่ต้องยุ่งกับ IMAGES_READY หลัก แค่เติมเข้า cache เฉย ๆ
+  preloadImages(urls, ()=>{}, ()=>{ /* เติมแคชเงียบ ๆ */ });
+}
+
+// ให้เริ่มหลัง DOM พร้อม (กันกรณี element ยังไม่อยู่)
+document.addEventListener('DOMContentLoaded', bootPreloadAll);
+
 
 
 /* ===== เสียงอ่านคำถามต่อด่าน ===== */
@@ -1219,9 +1252,19 @@ function spawnTwoImageOptions(qObj, level){
     el.dataset.correct = String(!!def.ok);
     el.dataset.side    = def.side;
 
-    const im = document.createElement('img');
-    im.alt = def.ok ? 'รูปที่ถูกต้อง' : 'รูปหลอก';
-    im.src = def.src || '';
+const im = document.createElement('img');
+im.alt = def.ok ? 'รูปที่ถูกต้อง' : 'รูปหลอก';
+
+// << ใช้แคชถ้ามี + รับประกัน decode แล้ว >>
+const url = def.src || '';
+const cached = __imgElemCache.get(url);
+if (cached && cached.complete && cached.naturalWidth > 0){
+  im.src = cached.src;
+} else {
+  // เผื่อยังไม่อยู่ cache (กรณีเพิ่งเปลี่ยนด่าน) — เติมแคชแบบเบา ๆ
+  warmDecode(url).then(img => { im.src = img.src; }).catch(()=>{ im.src = url; });
+}
+
     el.appendChild(im);
     game.appendChild(el);
 
@@ -1625,9 +1668,25 @@ function dropQuestion(text, imgSrc){
         // requestAnimationFrame(() => qBox.classList.add('in-go'));
       };
 
-      qImg.onload  = startIn;
-      qImg.onerror = textOnly;
-      qImg.src = imgSrc;
+qImg.onload  = startIn;
+qImg.onerror = textOnly;
+
+// ใช้รูปจากแคชถ้ามี (ขึ้นทันที ไม่ต้องรอเครือข่าย/Decode ใหม่)
+const cached = __imgElemCache.get(imgSrc);
+if (cached && cached.complete && cached.naturalWidth > 0){
+  qImg.src = cached.src;
+  // บางบราวเซอร์ onload อาจไม่ยิงเมื่อใช้ src เดิม → เรียก startIn เอง
+  if (qImg.complete && qImg.naturalWidth > 0) startIn();
+} else {
+  // เติมแคชแบบ async แล้วค่อยตั้ง src
+  warmDecode(imgSrc).then(img=>{
+    qImg.src = img.src;
+    if (qImg.complete && qImg.naturalWidth > 0) startIn();
+  }).catch(()=>{
+    qImg.src = imgSrc;
+  });
+}
+
       if (qImg.complete && qImg.naturalWidth > 0) startIn();
 } else {
   // ไม่มีรูป → เล่นเอฟเฟกต์กับ qBox
@@ -2178,7 +2237,7 @@ function startRoundTimer(){
 }
 
   function startGame(){
-  // ถ้ารูปยังโหลดไม่ครบ ให้รอโดยอัปเดตสถานะให้ผู้เล่นเห็น
+  ensurePreloadForLevel(window.currentLevel);
   if (!IMAGES_READY){
     const st = document.getElementById('startTitle');
     if (st) st.textContent = `กำลังเตรียมภาพ ${__preloadDone}/${__preloadTotal} ...`;
@@ -2189,16 +2248,16 @@ function startRoundTimer(){
         startGame(); // เรียกตัวเองอีกครั้งเมื่อพร้อม
       }
     }, 120);
-    return; // ออกก่อน ยังไม่เริ่มรอบ/จับเวลา
+    return; 
   }
 
     document.body.classList.remove('prestart');
-    document.body.classList.add('in-game');   // ✅ แสดง HUD เมื่อเริ่มเล่นจริง
+    document.body.classList.add('in-game');   
     running=true; ended=false; paused=false;
-        window.ended = ended; // ✅ อัปเดตค่า global
+        window.ended = ended; 
     overlay.style.visibility='hidden'; overlay.style.opacity='0';
     score=0; round=0; updateHUD();
-        startGameTimer(); // [เพิ่มใหม่] เริ่มจับเวลาทั้งด่าน 2 นาที
+        startGameTimer(); 
     nextRound();
   }
 
@@ -2214,11 +2273,13 @@ function startRoundTimer(){
     // 🔒 หยุดและซ่อนสนามเกมทั้งหมด
     awaitingAnswer = false;
     stopTimebar();
-    clearRoundObjects();                 // ลบวงกลมคำตอบ + ล้าง interval
-    qBox.textContent = '';               // ล้างข้อความคำถาม
-    qBox.style.display = 'none';         // ซ่อนกล่องคำถาม
+    clearRoundObjects();               
+    qBox.textContent = '';             
+    cancelPostRoundPhase(); // ยกเลิก timeout + ลบ tap-target ที่อาจสร้างไว้
+    document.querySelectorAll('.tap-target, .fly-emoji, .option').forEach(n=> n.remove());
+    qBox.style.display = 'none';     
     if (qImg){
-      qImg.style.display = 'none';       // ซ่อนภาพคำถาม
+      qImg.style.display = 'none';     
       qImg.removeAttribute('src');
     }
     game.style.visibility = 'hidden';    // ซ่อนสนามเกมทั้งหมด (ไม่ให้รันต่อ)
@@ -2258,7 +2319,7 @@ function pauseGame(){
         document.querySelectorAll('.option').forEach(n=> n.style.pointerEvents='auto'); 
     bgm?.play?.().catch(()=>{}); 
 
-        resumeGameTimer(); // [เพิ่มใหม่] กลับมานับเวลารวมต่อหลังจากพักเกม
+        resumeGameTimer(); 
 }
   document.getElementById('pauseBtn')?.addEventListener('click', ()=>{ if(!paused){ pauseGame(); document.getElementById('pauseBtn').textContent='▶️ ต่อ'; } else { resumeGame(); document.getElementById('pauseBtn').textContent='⏸ หยุด'; } });
   
@@ -2267,7 +2328,7 @@ document.getElementById('quickRestart')?.addEventListener('click', ()=>{
         cancelPostRoundPhase();    // ⬅ ยกเลิก timeout + ลบอีโมจิ
     clearCountdown();
     document.body.classList.remove('prestart');
-    restorePlayfield();   // ✅ คืนสนามเกม
+    restorePlayfield(); 
     overlay.style.visibility='hidden';
     overlay.style.opacity='0';
     resetState();
@@ -2283,11 +2344,12 @@ document.getElementById('quickRestart')?.addEventListener('click', ()=>{
 
   restartBtn.addEventListener('click', ()=>{
        cancelPostRoundPhase();
-    restorePlayfield();   // ✅ คืนสนามเกม
+    restorePlayfield();   
     overlay.style.visibility='hidden';
     overlay.style.opacity='0';
     resetState();
-        bgm.currentTime = 0;
+    bgm.currentTime = 0;
+        ensurePreloadForLevel(window.currentLevel);   // << เติมให้ชัวร์
     bgm.play().catch(()=>{});
     startGame();
   });
@@ -2301,6 +2363,7 @@ document.getElementById('quickRestart')?.addEventListener('click', ()=>{
     overlay.style.visibility='hidden';
     overlay.style.opacity='0';
     resetState();
+ensurePreloadForLevel(window.currentLevel);   // เติมของด่านล่าสุดไว้ก่อน
     document.getElementById('landing').classList.remove('hide');
     document.getElementById('startScreen').style.display='none';
         bgm.currentTime = 0;
@@ -2452,8 +2515,7 @@ function circleIntersectsRect(cx,cy,r, rc){
 }
 
 function hitByCircle(center, r){
-  if (window.ended) return;   // ✅ เช็ค global แทน
-  // ให้แตะได้ทั้งตัวเลือกและอีโมจิขนม
+  if (window.ended) return;   
   const opts = [...document.querySelectorAll('.option, .tap-target')];
 
 
@@ -2498,9 +2560,11 @@ document.addEventListener('visibilitychange', ()=>{ if(document.hidden && stream
   btn.addEventListener('click', ()=>{
     const lv = Number(btn.dataset.level || 0);
 
-
-    window.currentLevel = lv; // กันพลาดข้ามสโคป
-       document.body.classList.add('prestart'); 
+    window.currentLevel = lv; 
+    if (typeof ensurePreloadForLevel === 'function') {
+      ensurePreloadForLevel(lv);
+    }
+    document.body.classList.add('prestart'); 
     landing.classList.add('hide');
     startScreen.style.display='flex';
 
@@ -2517,7 +2581,7 @@ if (countdownEl){
   countdownEl.textContent = '3';
 }
 
-    document.getElementById('countdown').style.display='none';
+   document.getElementById('countdown').style.display='none';
    const st = document.getElementById('startTitle');
 
 function getMissionTitle(lv){
@@ -2528,7 +2592,6 @@ function getMissionTitle(lv){
     default: return 'เลือกรูปภาพให้ตรงกับคำศัพท์';
   }
 }
-
     st.textContent = getMissionTitle(lv);
   });
 });
@@ -2539,6 +2602,7 @@ function getMissionTitle(lv){
 </script>
 </body>
 </html>
+
 
 
 
