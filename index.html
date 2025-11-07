@@ -1918,7 +1918,7 @@ function endRound(ok, pickedElOrNull, timeout=false){
 if (ok) {
   score += 2;     // ตอบถูก +1
 } else {
-  score -= 1;     // ตอบผิด -1
+  score -= 2;     // ตอบผิด -1
 }
 updateHUD();
 flyScoreForEl(pickedElOrNull || null, ok); // แสดง +1/-1 ตรงกลางจอเหมือนเดิม
@@ -2602,6 +2602,7 @@ function getMissionTitle(lv){
 </script>
 </body>
 </html>
+
 
 
 
